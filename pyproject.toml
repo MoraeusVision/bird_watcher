@@ -11,3 +11,6 @@ dependencies = [
     "rfdetr>=1.6.2",
     "supervision>=0.27.0.post2",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
