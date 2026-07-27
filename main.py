@@ -31,7 +31,7 @@ def run() -> None:
         else:
             logger.debug("LED toggle (simulated)")
 
-        sleep(0.5)
+        sleep(0.3)
 
 
 if __name__ == "__main__":
