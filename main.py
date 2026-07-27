@@ -25,7 +25,18 @@ def _create_led():
 def run() -> None:
     led = _create_led()
 
-    led.blink()
+    try:
+        while True:
+            if led is not None:
+                led.toggle()
+            else:
+                logger.debug("LED toggle (simulated)")
+            sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+    finally:
+        if led is not None:
+            led.close()
 
 if __name__ == "__main__":
     run()
