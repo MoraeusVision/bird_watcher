@@ -33,7 +33,7 @@ def run() -> None:
                 logger.debug("LED toggle (simulated)")
             sleep(1)
     except KeyboardInterrupt:
-        logger.info("Shutting down...")
+        logger.info("Shutting down...........")
     finally:
         if led is not None:
             led.close()
