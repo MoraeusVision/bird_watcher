@@ -25,14 +25,7 @@ def _create_led():
 def run() -> None:
     led = _create_led()
 
-    while True:
-        if led is not None:
-            led.toggle()
-        else:
-            logger.debug("LED toggle (simulated)")
-
-        sleep(0.3)
-
+    led.blink()
 
 if __name__ == "__main__":
     run()
