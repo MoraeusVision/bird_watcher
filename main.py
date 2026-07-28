@@ -1,9 +1,13 @@
 import logging
+from pathlib import Path
 
 import cv2
 import numpy as np
+from rfdetr import RFDETRNano
+from rfdetr.assets.coco_classes import COCO_CLASSES
+import supervision as sv
 
-from utils import create_led, get_platform
+from utils import create_led, get_device, get_platform
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,18 +18,38 @@ logger = logging.getLogger(__name__)
 
 PLATFORM = get_platform()
 
-Frame = np.ndarray
-Prediction = object
+class BirdDetector:
+    """Simple RF-DETR bird detector."""
 
+    def __init__(self) -> None:
+        self.model = RFDETRNano()
+        self.model.optimize_for_inference()
+
+    def predict(self, frame: np.ndarray) -> sv.Detections:
+        detections = self.model.predict(frame)
+
+        return detections
 
 class BirdWatcherApp:
     """Bird watcher app"""
 
-    def __init__(self, video_source: int | str = 0) -> None:
+    def __init__(self, video_source: int | str = 0, detector: BirdDetector | None = None) -> None:
         self.video_source = video_source
+        self.bird_detector = detector
+        self.box_annotator = sv.BoxAnnotator()
+        self.label_annotator = sv.LabelAnnotator()
 
-    def on_frame(self, frame: Frame) -> Frame:
-        return frame
+    def on_prediction(self, detections: sv.Detections) -> None:
+        pass
+
+    def on_frame(self, frame: np.ndarray) -> np.ndarray:
+        detections = self.bird_detector.predict(frame)
+        labels = [f"{COCO_CLASSES[class_id]}" for class_id in detections.class_id]
+        
+        annotated_image = sv.BoxAnnotator().annotate(detections.metadata["source_image"], detections)
+        annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels)
+
+        return annotated_image
 
     def run(self) -> None:
         led = None
@@ -58,7 +82,8 @@ class BirdWatcherApp:
 
 
 def run() -> None:
-    app = BirdWatcherApp(video_source=0)
+    bird_detector = BirdDetector()
+    app = BirdWatcherApp(video_source=0, detector=bird_detector)
     app.run()
 
 
