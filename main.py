@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-
+import threading
 import cv2
 import numpy as np
 from rfdetr import RFDETRNano
@@ -17,56 +17,101 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 PLATFORM = get_platform()
+MODEL_PATH = "models/rf-detr-nano.pth"
+BIRD_CLASS_ID = 77  # COCO class ID for bird
+
+
+class FrameGetter:
+    def __init__(self, video_source: int | str = 0) -> None:
+        self.cap: cv2.VideoCapture = cv2.VideoCapture(video_source)
+        
+        if not self.cap.isOpened():
+            raise RuntimeError(f"Could not open source: {video_source}")
+        
+        self.frame: np.ndarray | None = None
+        self.running: bool = False
+        self.lock: threading.Lock = threading.Lock()
+        self.thread: threading.Thread | None = None
+        
+    def start(self) -> None:
+        self.running = True
+        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.thread.start()
+
+    def _capture_loop(self) -> None:
+        while self.running:
+            ret, frame = self.cap.read()
+
+            if not ret:
+                continue
+
+            with self.lock:
+                self.frame = frame
+
+    def get_frame(self) -> np.ndarray:
+        with self.lock:
+            if self.frame is None:
+                raise RuntimeError("No frame available yet")
+
+            return self.frame.copy()
+        
+    def stop(self) -> None:
+        self.running = False
+
+        if self.thread:
+            self.thread.join()
+
+        self.cap.release()
+    
 
 class BirdDetector:
-    """Simple RF-DETR bird detector."""
+    """RF-DETR bird detector."""
 
     def __init__(self) -> None:
-        self.model = RFDETRNano()
+        self.model = RFDETRNano(pretrain_weights=MODEL_PATH)
         self.model.optimize_for_inference()
 
     def predict(self, frame: np.ndarray) -> sv.Detections:
         detections = self.model.predict(frame)
+        bird_xyxy = None
 
-        return detections
+        for class_id in detections.class_id:
+            if class_id == 77:
+                logging.info("Bird spotted!")
+                bird_xyxy = detections.xyxy[0]
+                return detections, bird_xyxy
+            
+        return detections, bird_xyxy
+        
+        
 
 class BirdWatcherApp:
     """Bird watcher app"""
 
-    def __init__(self, video_source: int | str = 0, detector: BirdDetector | None = None) -> None:
-        self.video_source = video_source
-        self.bird_detector = detector
-        self.box_annotator = sv.BoxAnnotator()
-        self.label_annotator = sv.LabelAnnotator()
-
-    def on_prediction(self, detections: sv.Detections) -> None:
-        pass
+    def __init__(self, frame_getter: FrameGetter, detector: BirdDetector | None = None) -> None:
+        self.frame_getter: FrameGetter = frame_getter
+        self.bird_detector: BirdDetector | None = detector
+        self.box_annotator: sv.BoxAnnotator = sv.BoxAnnotator()
+        self.label_annotator: sv.LabelAnnotator = sv.LabelAnnotator()
 
     def on_frame(self, frame: np.ndarray) -> np.ndarray:
-        detections = self.bird_detector.predict(frame)
+        detections, bird_xyxy = self.bird_detector.predict(frame)
         labels = [f"{COCO_CLASSES[class_id]}" for class_id in detections.class_id]
         
-        annotated_image = sv.BoxAnnotator().annotate(detections.metadata["source_image"], detections)
+        annotated_image = sv.BoxAnnotator().annotate(frame, detections)
         annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels)
 
         return annotated_image
+        
 
     def run(self) -> None:
         led = None
         if PLATFORM == "Linux":
             led = create_led(PLATFORM)
 
-        cap = cv2.VideoCapture(self.video_source)
-        if not cap.isOpened():
-            raise RuntimeError(f"Could not open camera source: {self.video_source}")
-
-        logger.info("BirdWatcher started. Press 'q' or Esc to exit.")
         try:
             while True:
-                ret, frame = cap.read()
-                if not ret:
-                    logger.warning("Failed to read frame from camera")
-                    break
+                frame = self.frame_getter.get_frame()
 
                 processed_frame = self.on_frame(frame)
 
@@ -75,15 +120,18 @@ class BirdWatcherApp:
                 if key == ord("q") or key == 27:
                     break
         finally:
-            cap.release()
+            self.frame_getter.stop()
             cv2.destroyAllWindows()
             if led is not None:
                 led.close()
 
 
 def run() -> None:
+    frame_getter = FrameGetter(video_source=0)
+    frame_getter.start()
+
     bird_detector = BirdDetector()
-    app = BirdWatcherApp(video_source=0, detector=bird_detector)
+    app = BirdWatcherApp(frame_getter, detector=bird_detector)
     app.run()
 
 
