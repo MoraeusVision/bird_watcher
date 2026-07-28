@@ -1,5 +1,7 @@
-import torch
 import logging
+import platform
+
+import torch
 
 
 def get_device():
@@ -18,3 +20,16 @@ def parse_video_source(video_arg):
     if video_arg.isdigit():
         return int(video_arg)
     return video_arg
+
+def get_platform() -> str:
+    """Return the current platform name."""
+    return platform.system()
+
+def create_led(platform_name: str):
+    """Create a hardware LED on GPIO pin 17 on Linux only."""
+    if platform_name == "Linux":
+        from gpiozero import LED
+
+        return LED(17)
+
+    raise RuntimeError(f"Unsupported platform for GPIO LED: {platform_name}")

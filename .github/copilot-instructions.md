@@ -145,3 +145,21 @@ When generating code:
 - Keep changes as small as possible.
 - Explain trade-offs when multiple solutions exist.
 - If uncertain, choose the simpler implementation.
+
+---
+
+## YAGNI/KISS Decision Rules (Practical)
+
+When multiple implementations are possible, prefer the smallest working design first.
+
+- Do not add extension points (callbacks, dependency injection, strategy classes) unless at least one real second implementation is needed now.
+- Keep behavior inside the class/function first. Extract or inject only when current requirements demand variation.
+- Avoid optional function parameters that default to `None` when a simple internal method is enough.
+- Start with one clear flow. Add abstraction only after repeated code or real branching requirements appear.
+- Prefer explicit, concrete types over generic placeholders unless integration constraints require flexibility.
+- If a simpler solution and a flexible solution are both valid, implement the simpler one and document how to extend later.
+
+Examples:
+
+- Prefer internal `on_frame` / `on_prediction` methods over injected callbacks until external customization is actually required.
+- Prefer one concrete app class over base classes + subclasses until multiple variants exist in production code.

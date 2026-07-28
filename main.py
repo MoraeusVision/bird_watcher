@@ -1,6 +1,9 @@
 import logging
-import platform
-from time import sleep
+
+import cv2
+import numpy as np
+
+from utils import create_led, get_platform
 
 logging.basicConfig(
     level=logging.INFO,
@@ -9,34 +12,55 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+PLATFORM = get_platform()
 
-def _create_led():
-    """Create a hardware LED on GPIO pin 17, or None in simulation mode."""
-    if platform.system() == "Linux":
-        from gpiozero import LED  # noqa: PLC0415
+Frame = np.ndarray
+Prediction = object
 
-        logger.info("Raspberry Pi mode")
-        return LED(17)
 
-    logger.info("Simulation mode")
-    return None
+class BirdWatcherApp:
+    """Bird watcher app"""
+
+    def __init__(self, video_source: int | str = 0) -> None:
+        self.video_source = video_source
+
+    def on_frame(self, frame: Frame) -> Frame:
+        return frame
+
+    def run(self) -> None:
+        led = None
+        if PLATFORM == "Linux":
+            led = create_led(PLATFORM)
+
+        cap = cv2.VideoCapture(self.video_source)
+        if not cap.isOpened():
+            raise RuntimeError(f"Could not open camera source: {self.video_source}")
+
+        logger.info("BirdWatcher started. Press 'q' or Esc to exit.")
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    logger.warning("Failed to read frame from camera")
+                    break
+
+                processed_frame = self.on_frame(frame)
+
+                cv2.imshow("BirdWatcher", processed_frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q") or key == 27:
+                    break
+        finally:
+            cap.release()
+            cv2.destroyAllWindows()
+            if led is not None:
+                led.close()
 
 
 def run() -> None:
-    led = _create_led()
+    app = BirdWatcherApp(video_source=0)
+    app.run()
 
-    try:
-        while True:
-            if led is not None:
-                led.toggle()
-            else:
-                logger.debug("LED toggle (simulated)")
-            sleep(0.1)
-    except KeyboardInterrupt:
-        logger.info("Shutting down...........")
-    finally:
-        if led is not None:
-            led.close()
 
 if __name__ == "__main__":
     run()
