@@ -6,6 +6,7 @@ import numpy as np
 from rfdetr import RFDETRNano
 from rfdetr.assets.coco_classes import COCO_CLASSES
 import supervision as sv
+import streamlit as st
 
 from utils import create_led, get_device, get_platform
 
@@ -18,10 +19,11 @@ logger = logging.getLogger(__name__)
 
 PLATFORM = get_platform()
 MODEL_PATH = "models/rf-detr-nano.pth"
-BIRD_CLASS_ID = 77  # COCO class ID for bird
+BIRD_CLASS_ID = 16  # COCO class ID for bird
 
 
 class FrameGetter:
+    """Fetches frames from the video source"""
     def __init__(self, video_source: int | str = 0) -> None:
         self.cap: cv2.VideoCapture = cv2.VideoCapture(video_source)
         
@@ -76,9 +78,9 @@ class BirdDetector:
         bird_xyxy = None
 
         for class_id in detections.class_id:
-            if class_id == 77:
-                logging.info("Bird spotted!")
+            if class_id == BIRD_CLASS_ID:
                 bird_xyxy = detections.xyxy[0]
+                
                 return detections, bird_xyxy
             
         return detections, bird_xyxy
