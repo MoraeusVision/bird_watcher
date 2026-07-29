@@ -2,12 +2,16 @@ import logging
 from pathlib import Path
 import threading
 import cv2
+import torch
 import numpy as np
 from rfdetr import RFDETRNano
 from rfdetr.assets.coco_classes import COCO_CLASSES
 import supervision as sv
+from PIL import Image
 
-from utils import create_led, get_device, get_platform
+from transformers import pipeline
+
+from utils import create_led, get_device, get_platform, crop_image
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,23 +90,52 @@ class BirdDetector:
         return detections, bird_xyxy
         
         
+class BirdClassifier:
+    """Takes an image, crop the bird and classify"""
+    def __init__(self) -> None:
+        self.pipe = pipeline("image-classification", model="dennisjooo/Birds-Classifier-EfficientNetB2")
+
+    def predict(self, frame: np.ndarray) -> list[dict[str, float | str]]:
+        # OpenCV frames are BGR numpy arrays; pipeline expects PIL image/path/url/base64.
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_frame)
+        result = self.pipe(pil_image)
+        logger.info("Classification result: %s", result)
+        return result
+    
+
+
 class BirdWatcherApp:
     """Bird watcher app"""
 
-    def __init__(self, frame_getter: FrameGetter, detector: BirdDetector | None = None) -> None:
+    def __init__(
+        self,
+        frame_getter: FrameGetter,
+        detector: BirdDetector | None = None,
+        classifier: BirdClassifier | None = None,
+    ) -> None:
         self.frame_getter: FrameGetter = frame_getter
         self.bird_detector: BirdDetector | None = detector
+        self.bird_classifier: BirdClassifier | None = classifier
         self.box_annotator: sv.BoxAnnotator = sv.BoxAnnotator()
         self.label_annotator: sv.LabelAnnotator = sv.LabelAnnotator()
 
     def on_frame(self, frame: np.ndarray) -> np.ndarray:
         detections, bird_xyxy = self.bird_detector.predict(frame)
+
+        if bird_xyxy is not None:
+            bird_img = crop_image(frame=frame, xyxy=bird_xyxy)
+            self.bird_classifier(bird_img)
+
         labels = [f"{COCO_CLASSES[class_id]}" for class_id in detections.class_id]
         
         annotated_image = sv.BoxAnnotator().annotate(frame, detections)
         annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels)
 
-        return annotated_image
+        if bird_xyxy is not None:
+            return bird_img
+        else:
+            return annotated_image
         
 
     def run(self) -> None:
@@ -131,8 +164,14 @@ def run() -> None:
     frame_getter = FrameGetter(video_source=0)
     frame_getter.start()
 
+    bird_classifier = BirdClassifier()
     bird_detector = BirdDetector()
-    app = BirdWatcherApp(frame_getter, detector=bird_detector)
+
+    app = BirdWatcherApp(
+        frame_getter,
+        detector=bird_detector,
+        classifier=bird_classifier,
+    )
     app.run()
 
 
