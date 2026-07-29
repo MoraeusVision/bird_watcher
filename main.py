@@ -6,7 +6,6 @@ import numpy as np
 from rfdetr import RFDETRNano
 from rfdetr.assets.coco_classes import COCO_CLASSES
 import supervision as sv
-import streamlit as st
 
 from utils import create_led, get_device, get_platform
 
@@ -79,6 +78,7 @@ class BirdDetector:
 
         for class_id in detections.class_id:
             if class_id == BIRD_CLASS_ID:
+                logging.info("Bird detected!")
                 bird_xyxy = detections.xyxy[0]
                 
                 return detections, bird_xyxy
@@ -86,7 +86,6 @@ class BirdDetector:
         return detections, bird_xyxy
         
         
-
 class BirdWatcherApp:
     """Bird watcher app"""
 

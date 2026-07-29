@@ -9,7 +9,6 @@ dependencies = [
     "inference>=1.2.0",
     "opencv-python>=4.10.0.84",
     "rfdetr>=1.6.2",
-    "streamlit>=1.60.0",
     "supervision>=0.27.0.post2",
 ]
 
