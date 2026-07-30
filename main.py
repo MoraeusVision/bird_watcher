@@ -43,6 +43,8 @@ class VideoSource:
         self.running = False
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
+        
+        self.first_frame_ready = threading.Event()
 
     def start(self):
         self.running = True
@@ -51,6 +53,8 @@ class VideoSource:
             daemon=True,
         )
         self.thread.start()
+
+        self.first_frame_ready.wait() # Wait for the first frame coming in before continuing
 
     def _capture_loop(self):
         while self.running:
@@ -61,6 +65,8 @@ class VideoSource:
 
             with self.lock:
                 self.frame = frame
+
+            self.first_frame_ready.set()
 
     def get_frame(self) -> np.ndarray:
         with self.lock:
@@ -76,6 +82,7 @@ class VideoSource:
             self.thread.join()
 
         self.cap.release()
+        self.first_frame_ready.clear()
 
 
 class BirdDetector:
@@ -188,6 +195,8 @@ class BirdWatcherApp:
     def run(self):
         led = None
 
+        self.camera.start()
+
         if PLATFORM == "Linux":
             led = create_led(PLATFORM)
 
@@ -217,7 +226,6 @@ class BirdWatcherApp:
 
 def main():
     camera = VideoSource(0)
-    camera.start()
 
     detector = BirdDetector()
     classifier = BirdClassifier()
