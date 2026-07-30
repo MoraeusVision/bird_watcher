@@ -8,6 +8,7 @@ from rfdetr import RFDETRNano
 from rfdetr.assets.coco_classes import COCO_CLASSES
 import supervision as sv
 from PIL import Image
+from dataclasses import dataclass
 
 from transformers import pipeline
 
@@ -24,6 +25,10 @@ PLATFORM = get_platform()
 MODEL_PATH = "models/rf-detr-nano.pth"
 BIRD_CLASS_ID = 16  # COCO class ID for bird
 
+@dataclass
+class Birdie:
+    species: str
+    confidence: float
 
 class FrameGetter:
     """Fetches frames from the video source"""
@@ -82,7 +87,6 @@ class BirdDetector:
 
         for class_id in detections.class_id:
             if class_id == BIRD_CLASS_ID:
-                logging.info("Bird detected!")
                 bird_xyxy = detections.xyxy[0]
                 
                 return detections, bird_xyxy
@@ -99,9 +103,17 @@ class BirdClassifier:
         # OpenCV frames are BGR numpy arrays; pipeline expects PIL image/path/url/base64.
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(rgb_frame)
+
         result = self.pipe(pil_image)
-        logger.info("Classification result: %s", result)
-        return result
+        best = result[0]
+
+        bird = Birdie(
+            species=best["label"],
+            confidence=float(best["score"]))
+
+        logger.info(f"Bird species detected: {bird}")
+        
+        return bird
     
 
 
@@ -125,7 +137,7 @@ class BirdWatcherApp:
 
         if bird_xyxy is not None:
             bird_img = crop_image(frame=frame, xyxy=bird_xyxy)
-            self.bird_classifier(bird_img)
+            self.bird_classifier.predict(bird_img)
 
         labels = [f"{COCO_CLASSES[class_id]}" for class_id in detections.class_id]
         
