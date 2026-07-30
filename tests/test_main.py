@@ -180,7 +180,7 @@ def test_main_creates_components_and_runs_app(main_module) -> None:
 
 def test_app_run_starts_and_stops_camera(main_module, monkeypatch: pytest.MonkeyPatch) -> None:
     camera = Mock()
-    camera.get_frame.return_value = np.zeros((5, 5, 3), dtype=np.uint8)
+    camera.get_latest_frame.return_value = np.zeros((5, 5, 3), dtype=np.uint8)
 
     pipeline = Mock()
     pipeline.process.return_value = None

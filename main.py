@@ -68,7 +68,7 @@ class VideoSource:
 
             self.first_frame_ready.set()
 
-    def get_frame(self) -> np.ndarray:
+    def get_latest_frame(self) -> np.ndarray:
         with self.lock:
             if self.frame is None:
                 raise RuntimeError("No frame available")
@@ -202,7 +202,7 @@ class BirdWatcherApp:
 
         try:
             while True:
-                frame = self.camera.get_frame()
+                frame = self.camera.get_latest_frame()
 
                 output = self.process_frame(frame)
 
