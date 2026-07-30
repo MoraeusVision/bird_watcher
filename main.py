@@ -215,7 +215,7 @@ class BirdWatcherApp:
                 led.close()
 
 
-def run():
+def main():
     camera = VideoSource(0)
     camera.start()
 
@@ -236,4 +236,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    main()
