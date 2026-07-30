@@ -1,8 +1,6 @@
-"""Unit tests for main.py.
+"""Unit tests for main.py after refactor.
 
-These tests focus on app wiring and control flow, while replacing heavy runtime
-dependencies (model loading, external libraries, and camera/runtime side
-effects) with lightweight stubs.
+The tests target behavior and wiring while stubbing heavy dependencies.
 """
 
 import importlib
@@ -15,11 +13,8 @@ import pytest
 
 
 def _load_main_with_stubs(monkeypatch: pytest.MonkeyPatch):
-    """Import main.py with stubbed third-party modules.
+    """Import main.py with lightweight stubs for third-party modules."""
 
-    This keeps the tests deterministic and fast by avoiding model downloads,
-    hardware dependencies, and full inference stack initialization.
-    """
     class DummyRFDETRNano:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -27,20 +22,13 @@ def _load_main_with_stubs(monkeypatch: pytest.MonkeyPatch):
         def optimize_for_inference(self) -> None:
             pass
 
-    class DummyAnnotator:
-        def annotate(self, scene, detections, labels=None):
-            return scene
+        def predict(self, frame):
+            return frame
 
     rfdetr_module = types.ModuleType("rfdetr")
     rfdetr_module.RFDETRNano = DummyRFDETRNano
 
-    rfdetr_assets_module = types.ModuleType("rfdetr.assets")
-    rfdetr_coco_module = types.ModuleType("rfdetr.assets.coco_classes")
-    rfdetr_coco_module.COCO_CLASSES = {16: "bird", 1: "person"}
-
     supervision_module = types.ModuleType("supervision")
-    supervision_module.BoxAnnotator = DummyAnnotator
-    supervision_module.LabelAnnotator = DummyAnnotator
     supervision_module.Detections = object
 
     transformers_module = types.ModuleType("transformers")
@@ -49,16 +37,14 @@ def _load_main_with_stubs(monkeypatch: pytest.MonkeyPatch):
     )
 
     monkeypatch.setitem(sys.modules, "rfdetr", rfdetr_module)
-    monkeypatch.setitem(sys.modules, "rfdetr.assets", rfdetr_assets_module)
-    monkeypatch.setitem(sys.modules, "rfdetr.assets.coco_classes", rfdetr_coco_module)
     monkeypatch.setitem(sys.modules, "supervision", supervision_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
 
     import utils
 
     monkeypatch.setattr(utils, "get_platform", lambda: "Linux")
-    sys.modules.pop("main", None)
 
+    sys.modules.pop("main", None)
     import main
 
     return importlib.reload(main)
@@ -66,56 +52,82 @@ def _load_main_with_stubs(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def main_module(monkeypatch: pytest.MonkeyPatch):
-    """Provide a reloaded main module that uses local stubs."""
     return _load_main_with_stubs(monkeypatch)
 
 
 def test_platform_uses_get_platform(main_module) -> None:
-    """Ensure PLATFORM is derived from the platform helper at import time."""
     assert main_module.PLATFORM == "Linux"
 
 
-def test_on_frame_calls_classifier_when_bird_detected(main_module, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify bird detections trigger crop + classification path."""
-    detector = Mock()
-    detector.predict.return_value = (types.SimpleNamespace(class_id=[16]), np.array([0, 0, 2, 2]))
+def test_find_bird_returns_first_bird_bbox(main_module) -> None:
+    detector = object.__new__(main_module.BirdDetector)
 
-    classifier = Mock()
-    frame_getter = Mock()
-    app = main_module.BirdWatcherApp(frame_getter, detector=detector, classifier=classifier)
-
-    monkeypatch.setattr(
-        main_module,
-        "crop_image",
-        lambda frame, xyxy: np.ones((2, 2, 3), dtype=np.uint8),
+    detections = types.SimpleNamespace(
+        class_id=[1, 16, 16],
+        xyxy=[
+            np.array([0, 0, 1, 1]),
+            np.array([2, 2, 4, 4]),
+            np.array([5, 5, 7, 7]),
+        ],
     )
 
-    frame = np.zeros((8, 8, 3), dtype=np.uint8)
-    result = app.on_frame(frame)
+    bbox = main_module.BirdDetector.find_bird(detector, detections)
 
-    classifier.predict.assert_called_once()
-    assert result.shape == frame.shape
+    assert np.array_equal(bbox, np.array([2, 2, 4, 4]))
 
 
-def test_on_frame_skips_classifier_when_no_bird(main_module) -> None:
-    """Verify classification is skipped when no bird bbox is returned."""
+def test_find_bird_returns_none_when_missing(main_module) -> None:
+    detector = object.__new__(main_module.BirdDetector)
+
+    detections = types.SimpleNamespace(
+        class_id=[1, 3],
+        xyxy=[np.array([0, 0, 1, 1]), np.array([2, 2, 3, 3])],
+    )
+
+    bbox = main_module.BirdDetector.find_bird(detector, detections)
+
+    assert bbox is None
+
+
+def test_pipeline_process_returns_none_when_no_bird(main_module) -> None:
     detector = Mock()
-    detector.predict.return_value = (types.SimpleNamespace(class_id=[1]), None)
+    detector.predict.return_value = "detections"
+    detector.find_bird.return_value = None
 
     classifier = Mock()
-    frame_getter = Mock()
-    app = main_module.BirdWatcherApp(frame_getter, detector=detector, classifier=classifier)
+    pipeline = main_module.BirdPipeline(detector=detector, classifier=classifier)
 
     frame = np.zeros((8, 8, 3), dtype=np.uint8)
-    app.on_frame(frame)
+    result = pipeline.process(frame)
 
+    assert result is None
     classifier.predict.assert_not_called()
 
 
-def test_bird_classifier_predict_returns_birdie(main_module, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify classifier output is mapped to a Birdie domain object."""
+def test_pipeline_process_crops_and_classifies(main_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    detector = Mock()
+    detector.predict.return_value = "detections"
+    detector.find_bird.return_value = np.array([1, 1, 4, 4])
+
+    expected = main_module.BirdPrediction(species="BLUE JAY", confidence=0.91)
+    classifier = Mock()
+    classifier.predict.return_value = expected
+
+    pipeline = main_module.BirdPipeline(detector=detector, classifier=classifier)
+
+    cropped = np.ones((3, 3, 3), dtype=np.uint8)
+    monkeypatch.setattr(main_module, "crop_image", lambda frame, bbox: cropped)
+
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    result = pipeline.process(frame)
+
+    assert result == expected
+    classifier.predict.assert_called_once_with(cropped)
+
+
+def test_bird_classifier_predict_returns_bird_prediction(main_module, monkeypatch: pytest.MonkeyPatch) -> None:
     classifier = object.__new__(main_module.BirdClassifier)
-    classifier.pipe = Mock(return_value=[{"label": "BLUE JAY", "score": 0.87}])
+    classifier.model = Mock(return_value=[{"label": "BLUE JAY", "score": 0.87}])
 
     monkeypatch.setattr(main_module.cv2, "cvtColor", lambda frame, _: frame)
     monkeypatch.setattr(main_module.Image, "fromarray", lambda arr: arr)
@@ -123,28 +135,45 @@ def test_bird_classifier_predict_returns_birdie(main_module, monkeypatch: pytest
     frame = np.zeros((4, 4, 3), dtype=np.uint8)
     bird = main_module.BirdClassifier.predict(classifier, frame)
 
-    assert isinstance(bird, main_module.Birdie)
+    assert isinstance(bird, main_module.BirdPrediction)
     assert bird.species == "BLUE JAY"
     assert bird.confidence == pytest.approx(0.87)
 
 
+def test_process_frame_logs_when_prediction_exists(main_module) -> None:
+    camera = Mock()
+    pipeline = Mock()
+    pipeline.process.return_value = main_module.BirdPrediction(
+        species="NUTHATCH",
+        confidence=0.65,
+    )
+
+    app = main_module.BirdWatcherApp(camera=camera, pipeline=pipeline)
+    frame = np.zeros((5, 5, 3), dtype=np.uint8)
+
+    with patch.object(main_module.logger, "info") as logger_info:
+        out = app.process_frame(frame)
+
+    assert out is frame
+    logger_info.assert_called_once()
+
+
 def test_run_creates_components_and_starts_app(main_module) -> None:
-    """Verify run() wires dependencies and starts the app lifecycle."""
-    fake_frame_getter = Mock()
+    fake_camera = Mock()
+    fake_pipeline = Mock()
     fake_app = Mock()
 
-    with patch.object(main_module, "FrameGetter", return_value=fake_frame_getter) as frame_getter_cls, patch.object(
-        main_module, "BirdClassifier", return_value="classifier"
-    ) as classifier_cls, patch.object(main_module, "BirdDetector", return_value="detector") as detector_cls, patch.object(
-        main_module,
-        "BirdWatcherApp",
-        return_value=fake_app,
-    ) as app_cls:
+    with patch.object(main_module, "VideoSource", return_value=fake_camera) as camera_cls, patch.object(
+        main_module, "BirdDetector", return_value="detector"
+    ) as detector_cls, patch.object(main_module, "BirdClassifier", return_value="classifier") as classifier_cls, patch.object(
+        main_module, "BirdPipeline", return_value=fake_pipeline
+    ) as pipeline_cls, patch.object(main_module, "BirdWatcherApp", return_value=fake_app) as app_cls:
         main_module.run()
 
-    frame_getter_cls.assert_called_once_with(video_source=0)
-    fake_frame_getter.start.assert_called_once()
-    classifier_cls.assert_called_once_with()
+    camera_cls.assert_called_once_with(0)
+    fake_camera.start.assert_called_once_with()
     detector_cls.assert_called_once_with()
-    app_cls.assert_called_once_with(fake_frame_getter, detector="detector", classifier="classifier")
+    classifier_cls.assert_called_once_with()
+    pipeline_cls.assert_called_once_with("detector", "classifier")
+    app_cls.assert_called_once_with(fake_camera, fake_pipeline)
     fake_app.run.assert_called_once_with()
