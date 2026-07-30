@@ -116,17 +116,16 @@ class BirdClassifier:
         return bird
     
 
-
 class BirdWatcherApp:
     """Bird watcher app"""
 
     def __init__(
         self,
-        frame_getter: FrameGetter,
+        source: FrameGetter,
         detector: BirdDetector | None = None,
         classifier: BirdClassifier | None = None,
     ) -> None:
-        self.frame_getter: FrameGetter = frame_getter
+        self.frame_getter: FrameGetter = source
         self.bird_detector: BirdDetector | None = detector
         self.bird_classifier: BirdClassifier | None = classifier
         self.box_annotator: sv.BoxAnnotator = sv.BoxAnnotator()
@@ -144,10 +143,7 @@ class BirdWatcherApp:
         annotated_image = sv.BoxAnnotator().annotate(frame, detections)
         annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels)
 
-        if bird_xyxy is not None:
-            return bird_img
-        else:
-            return annotated_image
+        return annotated_image
         
 
     def run(self) -> None:
@@ -173,14 +169,17 @@ class BirdWatcherApp:
 
 
 def run() -> None:
+
+    # Start the camera
     frame_getter = FrameGetter(video_source=0)
     frame_getter.start()
 
+    # Initiate the models
     bird_classifier = BirdClassifier()
     bird_detector = BirdDetector()
 
     app = BirdWatcherApp(
-        frame_getter,
+        source=frame_getter,
         detector=bird_detector,
         classifier=bird_classifier,
     )
