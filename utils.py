@@ -1,26 +1,6 @@
-import logging
 import platform
 
 import numpy as np
-import torch
-
-
-def get_device():
-    """Return the best available device: cuda, mps, or cpu. Logs the selected device."""
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
-    logging.info(f"Using device: {device}")
-    return device
-
-def parse_video_source(video_arg):
-    """If user provides "--source 0" """
-    if video_arg.isdigit():
-        return int(video_arg)
-    return video_arg
 
 def get_platform() -> str:
     """Return the current platform name."""
@@ -34,7 +14,6 @@ def create_led(platform_name: str):
         return LED(17)
 
     raise RuntimeError(f"Unsupported platform for GPIO LED: {platform_name}")
-
 
 def crop_image(frame: np.ndarray, xyxy) -> np.ndarray:
     """Crop a frame using an ``xyxy`` bounding box."""
