@@ -1,18 +1,16 @@
 import logging
-from pathlib import Path
 import threading
-import cv2
-import torch
-import numpy as np
-from rfdetr import RFDETRNano
-from rfdetr.assets.coco_classes import COCO_CLASSES
-import supervision as sv
-from PIL import Image
 from dataclasses import dataclass
 
+import cv2
+import numpy as np
+import supervision as sv
+from PIL import Image
 from transformers import pipeline
+from rfdetr import RFDETRNano
 
-from utils import create_led, get_device, get_platform, crop_image
+from utils import create_led, get_platform, crop_image
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,32 +21,38 @@ logger = logging.getLogger(__name__)
 
 PLATFORM = get_platform()
 MODEL_PATH = "models/rf-detr-nano.pth"
-BIRD_CLASS_ID = 16  # COCO class ID for bird
+BIRD_CLASS_ID = 16
 
-@dataclass
-class Birdie:
+
+@dataclass(slots=True)
+class BirdPrediction:
     species: str
     confidence: float
 
-class FrameGetter:
-    """Fetches frames from the video source"""
-    def __init__(self, video_source: int | str = 0) -> None:
-        self.cap: cv2.VideoCapture = cv2.VideoCapture(video_source)
-        
+
+class VideoSource:
+    """Threaded camera reader."""
+
+    def __init__(self, source: int | str = 0):
+        self.cap = cv2.VideoCapture(source)
+
         if not self.cap.isOpened():
-            raise RuntimeError(f"Could not open source: {video_source}")
-        
+            raise RuntimeError(f"Could not open source {source}")
+
         self.frame: np.ndarray | None = None
-        self.running: bool = False
-        self.lock: threading.Lock = threading.Lock()
+        self.running = False
+        self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
-        
-    def start(self) -> None:
+
+    def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.thread = threading.Thread(
+            target=self._capture_loop,
+            daemon=True,
+        )
         self.thread.start()
 
-    def _capture_loop(self) -> None:
+    def _capture_loop(self):
         while self.running:
             ret, frame = self.cap.read()
 
@@ -61,128 +65,173 @@ class FrameGetter:
     def get_frame(self) -> np.ndarray:
         with self.lock:
             if self.frame is None:
-                raise RuntimeError("No frame available yet")
+                raise RuntimeError("No frame available")
 
             return self.frame.copy()
-        
-    def stop(self) -> None:
+
+    def stop(self):
         self.running = False
 
         if self.thread:
             self.thread.join()
 
         self.cap.release()
-    
+
 
 class BirdDetector:
     """RF-DETR bird detector."""
 
-    def __init__(self) -> None:
-        self.model = RFDETRNano(pretrain_weights=MODEL_PATH)
+    def __init__(self):
+        self.model = RFDETRNano(
+            pretrain_weights=MODEL_PATH
+        )
         self.model.optimize_for_inference()
 
     def predict(self, frame: np.ndarray) -> sv.Detections:
-        detections = self.model.predict(frame)
-        bird_xyxy = None
+        return self.model.predict(frame)
 
-        for class_id in detections.class_id:
+    def find_bird(
+        self,
+        detections: sv.Detections,
+    ) -> np.ndarray | None:
+
+        for class_id, bbox in zip(
+            detections.class_id,
+            detections.xyxy,
+        ):
             if class_id == BIRD_CLASS_ID:
-                bird_xyxy = detections.xyxy[0]
-                
-                return detections, bird_xyxy
-            
-        return detections, bird_xyxy
-        
-        
+                return bbox
+
+        return None
+
+
 class BirdClassifier:
-    """Takes an image, crop the bird and classify"""
-    def __init__(self) -> None:
-        self.pipe = pipeline("image-classification", model="dennisjooo/Birds-Classifier-EfficientNetB2")
+    """Bird species classifier."""
 
-    def predict(self, frame: np.ndarray) -> list[dict[str, float | str]]:
-        # OpenCV frames are BGR numpy arrays; pipeline expects PIL image/path/url/base64.
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(rgb_frame)
+    def __init__(self):
+        self.model = pipeline(
+            "image-classification",
+            model="dennisjooo/Birds-Classifier-EfficientNetB2",
+        )
 
-        result = self.pipe(pil_image)
+    def predict(
+        self,
+        image: np.ndarray,
+    ) -> BirdPrediction:
+
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        result = self.model(Image.fromarray(image_rgb))
+
         best = result[0]
 
-        bird = Birdie(
+        return BirdPrediction(
             species=best["label"],
-            confidence=float(best["score"]))
+            confidence=float(best["score"]),
+        )
 
-        logger.info(f"Bird species detected: {bird}")
-        
-        return bird
-    
 
-class BirdWatcherApp:
-    """Bird watcher app"""
+class BirdPipeline:
+    """Coordinates detection and classification."""
 
     def __init__(
         self,
-        source: FrameGetter,
-        detector: BirdDetector | None = None,
-        classifier: BirdClassifier | None = None,
-    ) -> None:
-        self.frame_getter: FrameGetter = source
-        self.bird_detector: BirdDetector | None = detector
-        self.bird_classifier: BirdClassifier | None = classifier
-        self.box_annotator: sv.BoxAnnotator = sv.BoxAnnotator()
-        self.label_annotator: sv.LabelAnnotator = sv.LabelAnnotator()
+        detector: BirdDetector,
+        classifier: BirdClassifier,
+    ):
+        self.detector = detector
+        self.classifier = classifier
 
-    def on_frame(self, frame: np.ndarray) -> np.ndarray:
-        detections, bird_xyxy = self.bird_detector.predict(frame)
+    def process(
+        self,
+        frame: np.ndarray,
+    ) -> BirdPrediction | None:
 
-        if bird_xyxy is not None:
-            bird_img = crop_image(frame=frame, xyxy=bird_xyxy)
-            self.bird_classifier.predict(bird_img)
+        detections = self.detector.predict(frame)
 
-        labels = [f"{COCO_CLASSES[class_id]}" for class_id in detections.class_id]
-        
-        annotated_image = sv.BoxAnnotator().annotate(frame, detections)
-        annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels)
+        bbox = self.detector.find_bird(detections)
 
-        return annotated_image
-        
+        if bbox is None:
+            return None
 
-    def run(self) -> None:
+        bird_image = crop_image(frame, bbox)
+
+        return self.classifier.predict(bird_image)
+
+
+class BirdWatcherApp:
+
+    def __init__(
+        self,
+        camera: VideoSource,
+        pipeline: BirdPipeline,
+    ):
+        self.camera = camera
+        self.pipeline = pipeline
+
+    def process_frame(
+        self,
+        frame: np.ndarray,
+    ) -> np.ndarray:
+
+        prediction = self.pipeline.process(frame)
+
+        if prediction:
+            logger.info(
+                "%s %.1f%%",
+                prediction.species,
+                prediction.confidence * 100,
+            )
+
+        return frame
+
+    def run(self):
         led = None
+
         if PLATFORM == "Linux":
             led = create_led(PLATFORM)
 
         try:
             while True:
-                frame = self.frame_getter.get_frame()
+                frame = self.camera.get_frame()
 
-                processed_frame = self.on_frame(frame)
+                output = self.process_frame(frame)
 
-                cv2.imshow("BirdWatcher", processed_frame)
+                cv2.imshow(
+                    "BirdWatcher",
+                    output,
+                )
+
                 key = cv2.waitKey(1) & 0xFF
+
                 if key == ord("q") or key == 27:
                     break
+
         finally:
-            self.frame_getter.stop()
+            self.camera.stop()
             cv2.destroyAllWindows()
-            if led is not None:
+
+            if led:
                 led.close()
 
 
-def run() -> None:
+def run():
+    camera = VideoSource(0)
+    camera.start()
 
-    # Start the camera
-    frame_getter = FrameGetter(video_source=0)
-    frame_getter.start()
+    detector = BirdDetector()
+    classifier = BirdClassifier()
 
-    # Initiate the models
-    bird_classifier = BirdClassifier()
-    bird_detector = BirdDetector()
+    pipeline = BirdPipeline(
+        detector,
+        classifier,
+    )
 
     app = BirdWatcherApp(
-        source=frame_getter,
-        detector=bird_detector,
-        classifier=bird_classifier,
+        camera,
+        pipeline,
     )
+
     app.run()
 
 
