@@ -9,7 +9,7 @@ from PIL import Image
 from transformers import pipeline
 from rfdetr import RFDETRNano
 
-from utils import create_led, get_platform, crop_image, LedManager
+from utils import get_platform, crop_image, LedManager
 
 
 logging.basicConfig(
