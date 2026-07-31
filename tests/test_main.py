@@ -142,13 +142,14 @@ def test_bird_classifier_predict_returns_bird_prediction(main_module, monkeypatc
 
 def test_process_frame_logs_when_prediction_exists(main_module) -> None:
     camera = Mock()
+    led = Mock()
     pipeline = Mock()
     pipeline.process.return_value = main_module.BirdPrediction(
         species="NUTHATCH",
         confidence=0.65,
     )
 
-    app = main_module.BirdWatcherApp(camera=camera, pipeline=pipeline)
+    app = main_module.BirdWatcherApp(led=led, camera=camera, pipeline=pipeline)
     frame = np.zeros((5, 5, 3), dtype=np.uint8)
 
     with patch.object(main_module.logger, "info") as logger_info:
@@ -159,40 +160,48 @@ def test_process_frame_logs_when_prediction_exists(main_module) -> None:
 
 
 def test_main_creates_components_and_runs_app(main_module) -> None:
+    fake_led = Mock()
     fake_camera = Mock()
     fake_pipeline = Mock()
     fake_app = Mock()
 
-    with patch.object(main_module, "VideoSource", return_value=fake_camera) as camera_cls, patch.object(
+    with patch.object(main_module, "LedManager", return_value=fake_led) as led_cls, patch.object(
+        main_module, "VideoSource", return_value=fake_camera
+    ) as camera_cls, patch.object(
         main_module, "BirdDetector", return_value="detector"
     ) as detector_cls, patch.object(main_module, "BirdClassifier", return_value="classifier") as classifier_cls, patch.object(
         main_module, "BirdPipeline", return_value=fake_pipeline
     ) as pipeline_cls, patch.object(main_module, "BirdWatcherApp", return_value=fake_app) as app_cls:
         main_module.main()
 
+    led_cls.assert_called_once_with(main_module.PLATFORM)
     camera_cls.assert_called_once_with(0)
     detector_cls.assert_called_once_with()
     classifier_cls.assert_called_once_with()
     pipeline_cls.assert_called_once_with("detector", "classifier")
-    app_cls.assert_called_once_with(fake_camera, fake_pipeline)
+    app_cls.assert_called_once_with(fake_led, fake_camera, fake_pipeline)
     fake_app.run.assert_called_once_with()
 
 
 def test_app_run_starts_and_stops_camera(main_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main_module, "PLATFORM", "Darwin")
+
+    led = Mock()
     camera = Mock()
     camera.get_latest_frame.return_value = np.zeros((5, 5, 3), dtype=np.uint8)
 
     pipeline = Mock()
     pipeline.process.return_value = None
 
-    app = main_module.BirdWatcherApp(camera=camera, pipeline=pipeline)
+    app = main_module.BirdWatcherApp(led=led, camera=camera, pipeline=pipeline)
 
     monkeypatch.setattr(main_module.cv2, "imshow", lambda *args, **kwargs: None)
     monkeypatch.setattr(main_module.cv2, "waitKey", lambda _: ord("q"))
     monkeypatch.setattr(main_module.cv2, "destroyAllWindows", lambda: None)
-    monkeypatch.setattr(main_module, "create_led", lambda _: None)
 
     app.run()
 
     camera.start.assert_called_once_with()
     camera.stop.assert_called_once_with()
+    led.led_off.assert_called_once_with()
+    led.led_close.assert_called_once_with()
