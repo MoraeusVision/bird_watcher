@@ -238,10 +238,10 @@ class BirdWatcherApp:
                 
                 output = self.process_frame(frame)
 
-                cv2.imshow(
+                """cv2.imshow(
                     "BirdWatcher",
                     output,
-                )
+                )"""
                 self.led.led_on() # Only for raspberry
 
                 key = cv2.waitKey(1) & 0xFF
