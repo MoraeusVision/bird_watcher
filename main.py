@@ -40,6 +40,9 @@ class VideoSource:
             from picamera2 import Picamera2
 
             self.camera = Picamera2()
+            self.camera.configure(
+                self.camera.create_preview_configuration()
+            )
             self.camera.start()
 
         else:
