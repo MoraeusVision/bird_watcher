@@ -34,39 +34,65 @@ class VideoSource:
     """Threaded camera reader."""
 
     def __init__(self, source: int | str = 0):
-        self.cap = cv2.VideoCapture(source)
+        self.platform = get_platform()
 
-        if not self.cap.isOpened():
-            raise RuntimeError(f"Could not open source {source}")
+        if self.platform == "Linux":
+            from picamera2 import Picamera2
+
+            self.camera = Picamera2()
+            self.camera.start()
+
+        else:
+            self.cap = cv2.VideoCapture(source)
+
+            if not self.cap.isOpened():
+                raise RuntimeError(
+                    f"Could not open source {source}"
+                )
 
         self.frame: np.ndarray | None = None
         self.running = False
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
-        
+
         self.first_frame_ready = threading.Event()
+
 
     def start(self):
         self.running = True
+
         self.thread = threading.Thread(
             target=self._capture_loop,
             daemon=True,
         )
         self.thread.start()
 
-        self.first_frame_ready.wait() # Wait for the first frame coming in before continuing
+        self.first_frame_ready.wait()
+
 
     def _capture_loop(self):
         while self.running:
-            ret, frame = self.cap.read()
 
-            if not ret:
-                continue
+            if self.platform == "Linux":
+                frame = self.camera.capture_array()
+
+                # Picamera2 ger ofta RGBA
+                frame = cv2.cvtColor(
+                    frame,
+                    cv2.COLOR_RGBA2BGR,
+                )
+
+            else:
+                ret, frame = self.cap.read()
+
+                if not ret:
+                    continue
 
             with self.lock:
                 self.frame = frame
 
             self.first_frame_ready.set()
+
 
     def get_latest_frame(self) -> np.ndarray:
         with self.lock:
@@ -75,13 +101,18 @@ class VideoSource:
 
             return self.frame.copy()
 
+
     def stop(self):
         self.running = False
 
         if self.thread:
             self.thread.join()
 
-        self.cap.release()
+        if self.platform == "Linux":
+            self.camera.stop()
+        else:
+            self.cap.release()
+
         self.first_frame_ready.clear()
 
 
