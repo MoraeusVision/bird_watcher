@@ -9,7 +9,7 @@ from PIL import Image
 from transformers import pipeline
 from rfdetr import RFDETRNano
 
-from utils import create_led, get_platform, crop_image
+from utils import create_led, get_platform, crop_image, LedManager
 
 
 logging.basicConfig(
@@ -204,9 +204,11 @@ class BirdWatcherApp:
 
     def __init__(
         self,
+        led: LedManager,
         camera: VideoSource,
         pipeline: BirdPipeline,
     ):
+        self.led = led
         self.camera = camera
         self.pipeline = pipeline
 
@@ -227,23 +229,20 @@ class BirdWatcherApp:
         return frame
 
     def run(self):
-        led = None
 
         self.camera.start()
-
-        #if PLATFORM == "Linux":
-            #led = create_led(PLATFORM)
 
         try:
             while True:
                 frame = self.camera.get_latest_frame()
-
+                
                 output = self.process_frame(frame)
 
                 cv2.imshow(
                     "BirdWatcher",
                     output,
                 )
+                self.led.led_on() # Only for raspberry
 
                 key = cv2.waitKey(1) & 0xFF
 
@@ -252,13 +251,13 @@ class BirdWatcherApp:
 
         finally:
             self.camera.stop()
+            self.led.led_off()
+            self.led.led_close()
             cv2.destroyAllWindows()
-
-            if led:
-                led.close()
 
 
 def main():
+    led = LedManager(PLATFORM)
     camera = VideoSource(0)
 
     detector = BirdDetector()
@@ -270,6 +269,7 @@ def main():
     )
 
     app = BirdWatcherApp(
+        led,
         camera,
         pipeline,
     )
