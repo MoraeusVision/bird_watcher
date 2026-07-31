@@ -219,6 +219,8 @@ class BirdWatcherApp:
 
         prediction = self.pipeline.process(frame)
 
+        logging.info(prediction)
+
         if prediction:
             logger.info(
                 "%s %.1f%%",
