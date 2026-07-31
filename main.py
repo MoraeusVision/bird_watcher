@@ -228,8 +228,8 @@ class BirdWatcherApp:
 
         self.camera.start()
 
-        if PLATFORM == "Linux":
-            led = create_led(PLATFORM)
+        #if PLATFORM == "Linux":
+            #led = create_led(PLATFORM)
 
         try:
             while True:
