@@ -2,18 +2,29 @@ import platform
 
 import numpy as np
 
+class LedManager:
+    def __init__(self, platform_name):
+        self.led = None
+
+        if platform_name == "Linux":
+            from gpiozero import LED
+            self.led = LED(17)
+
+    def led_on(self):
+        if self.led:
+            self.led.on()
+
+    def led_off(self):
+        if self.led:
+            self.led.off()
+
+    def led_close(self):
+        if self.led:
+            self.led.close()
+
 def get_platform() -> str:
     """Return the current platform name."""
     return platform.system()
-
-def create_led(platform_name: str):
-    """Create a hardware LED on GPIO pin 17 on Linux only."""
-    if platform_name == "Linux":
-        from gpiozero import LED
-
-        return LED(17)
-
-    raise RuntimeError(f"Unsupported platform for GPIO LED: {platform_name}")
 
 def crop_image(frame: np.ndarray, xyxy) -> np.ndarray:
     """Crop a frame using an ``xyxy`` bounding box."""
