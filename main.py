@@ -219,8 +219,6 @@ class BirdWatcherApp:
 
         prediction = self.pipeline.process(frame)
 
-        logging.info(prediction)
-
         if prediction:
             logger.info(
                 "%s %.1f%%",
@@ -240,16 +238,18 @@ class BirdWatcherApp:
                 
                 output = self.process_frame(frame)
 
-                """cv2.imshow(
-                    "BirdWatcher",
-                    output,
-                )"""
                 self.led.led_on() # Only for raspberry
 
-                key = cv2.waitKey(1) & 0xFF
+                if PLATFORM != "Linux":
+                    cv2.imshow(
+                        "BirdWatcher",
+                        output,
+                    )
+                    
+                    key = cv2.waitKey(1) & 0xFF
 
-                if key == ord("q") or key == 27:
-                    break
+                    if key == ord("q") or key == 27:
+                        break
 
         finally:
             self.camera.stop()
