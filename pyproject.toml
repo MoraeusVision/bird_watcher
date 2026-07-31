@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "flask>=3.0.0",
     "gpiozero>=2.0.1.post2; sys_platform == 'linux'",
     "inference>=1.2.0",
     "opencv-python>=4.10.0.84",

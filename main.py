@@ -1,6 +1,16 @@
 import logging
-import platform
-from time import sleep
+import threading
+from dataclasses import dataclass
+
+import cv2
+import numpy as np
+import supervision as sv
+from PIL import Image
+from transformers import pipeline
+from rfdetr import RFDETRNano
+
+from utils import create_led, get_platform, crop_image
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -9,34 +19,229 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-def _create_led():
-    """Create a hardware LED on GPIO pin 17, or None in simulation mode."""
-    if platform.system() == "Linux":
-        from gpiozero import LED  # noqa: PLC0415
-
-        logger.info("Raspberry Pi mode")
-        return LED(17)
-
-    logger.info("Simulation mode")
-    return None
+PLATFORM = get_platform()
+MODEL_PATH = "models/rf-detr-nano.pth"
+BIRD_CLASS_ID = 16
 
 
-def run() -> None:
-    led = _create_led()
+@dataclass(slots=True)
+class BirdPrediction:
+    species: str
+    confidence: float
 
-    try:
-        while True:
-            if led is not None:
-                led.toggle()
-            else:
-                logger.debug("LED toggle (simulated)")
-            sleep(0.1)
-    except KeyboardInterrupt:
-        logger.info("Shutting down...........")
-    finally:
-        if led is not None:
-            led.close()
+
+class VideoSource:
+    """Threaded camera reader."""
+
+    def __init__(self, source: int | str = 0):
+        self.cap = cv2.VideoCapture(source)
+
+        if not self.cap.isOpened():
+            raise RuntimeError(f"Could not open source {source}")
+
+        self.frame: np.ndarray | None = None
+        self.running = False
+        self.lock = threading.Lock()
+        self.thread: threading.Thread | None = None
+        
+        self.first_frame_ready = threading.Event()
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(
+            target=self._capture_loop,
+            daemon=True,
+        )
+        self.thread.start()
+
+        self.first_frame_ready.wait() # Wait for the first frame coming in before continuing
+
+    def _capture_loop(self):
+        while self.running:
+            ret, frame = self.cap.read()
+
+            if not ret:
+                continue
+
+            with self.lock:
+                self.frame = frame
+
+            self.first_frame_ready.set()
+
+    def get_latest_frame(self) -> np.ndarray:
+        with self.lock:
+            if self.frame is None:
+                raise RuntimeError("No frame available")
+
+            return self.frame.copy()
+
+    def stop(self):
+        self.running = False
+
+        if self.thread:
+            self.thread.join()
+
+        self.cap.release()
+        self.first_frame_ready.clear()
+
+
+class BirdDetector:
+    """RF-DETR bird detector."""
+
+    def __init__(self):
+        self.model = RFDETRNano(
+            pretrain_weights=MODEL_PATH
+        )
+        self.model.optimize_for_inference()
+
+    def predict(self, frame: np.ndarray) -> sv.Detections:
+        return self.model.predict(frame)
+
+    def find_bird(
+        self,
+        detections: sv.Detections,
+    ) -> np.ndarray | None:
+
+        for class_id, bbox in zip(
+            detections.class_id,
+            detections.xyxy,
+        ):
+            if class_id == BIRD_CLASS_ID:
+                return bbox
+
+        return None
+
+
+class BirdClassifier:
+    """Bird species classifier."""
+
+    def __init__(self):
+        self.model = pipeline(
+            "image-classification",
+            model="dennisjooo/Birds-Classifier-EfficientNetB2",
+        )
+
+    def predict(
+        self,
+        image: np.ndarray,
+    ) -> BirdPrediction:
+
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        result = self.model(Image.fromarray(image_rgb))
+
+        best = result[0]
+
+        return BirdPrediction(
+            species=best["label"],
+            confidence=float(best["score"]),
+        )
+
+
+class BirdPipeline:
+    """Coordinates detection and classification."""
+
+    def __init__(
+        self,
+        detector: BirdDetector,
+        classifier: BirdClassifier,
+    ):
+        self.detector = detector
+        self.classifier = classifier
+
+    def process(
+        self,
+        frame: np.ndarray,
+    ) -> BirdPrediction | None:
+
+        detections = self.detector.predict(frame)
+
+        bbox = self.detector.find_bird(detections)
+
+        if bbox is None:
+            return None
+
+        bird_image = crop_image(frame, bbox)
+
+        return self.classifier.predict(bird_image)
+
+
+class BirdWatcherApp:
+
+    def __init__(
+        self,
+        camera: VideoSource,
+        pipeline: BirdPipeline,
+    ):
+        self.camera = camera
+        self.pipeline = pipeline
+
+    def process_frame(
+        self,
+        frame: np.ndarray,
+    ) -> np.ndarray:
+
+        prediction = self.pipeline.process(frame)
+
+        if prediction:
+            logger.info(
+                "%s %.1f%%",
+                prediction.species,
+                prediction.confidence * 100,
+            )
+
+        return frame
+
+    def run(self):
+        led = None
+
+        self.camera.start()
+
+        if PLATFORM == "Linux":
+            led = create_led(PLATFORM)
+
+        try:
+            while True:
+                frame = self.camera.get_latest_frame()
+
+                output = self.process_frame(frame)
+
+                cv2.imshow(
+                    "BirdWatcher",
+                    output,
+                )
+
+                key = cv2.waitKey(1) & 0xFF
+
+                if key == ord("q") or key == 27:
+                    break
+
+        finally:
+            self.camera.stop()
+            cv2.destroyAllWindows()
+
+            if led:
+                led.close()
+
+
+def main():
+    camera = VideoSource(0)
+
+    detector = BirdDetector()
+    classifier = BirdClassifier()
+
+    pipeline = BirdPipeline(
+        detector,
+        classifier,
+    )
+
+    app = BirdWatcherApp(
+        camera,
+        pipeline,
+    )
+
+    app.run()
+
 
 if __name__ == "__main__":
-    run()
+    main()

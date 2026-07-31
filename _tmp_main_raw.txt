@@ -1,0 +1,37 @@
+import logging
+from time import sleep
+
+from utils import get_platform, create_led
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+PLATFORM = get_platform()
+
+
+
+def run() -> None:
+    if PLATFORM == "Linux":
+        led = create_led()
+
+
+
+    try:
+        while True:
+            if led is not None:
+                led.toggle()
+            else:
+                logger.debug("LED toggle (simulated)")
+            sleep(0.1)
+    except KeyboardInterrupt:
+        logger.info("Shutting down...........")
+    finally:
+        if led is not None:
+            led.close()
+
+if __name__ == "__main__":
+    run()
