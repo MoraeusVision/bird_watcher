@@ -10,6 +10,7 @@ from PIL import Image
 from flask import Flask, Response, jsonify, render_template
 from rfdetr import RFDETRNano
 from transformers import pipeline
+from huggingface_hub import hf_hub_download
 
 from utils import crop_image, get_platform
 
@@ -21,13 +22,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = "models/rf-detr-nano.pth"
+BIRD_MODEL_PATH = "models/rf-detr-nano.pth"
 BIRD_CLASS_ID = 16
+
+EGG_MODEL_REPO = "moraeusvision/rf-detr-egg-detector"
+EGG_MODEL_FILENAME = "checkpoint_best_ema.pth"
 
 
 @dataclass
 class BirdPrediction:
 	species: str
+	confidence: float
+
+@dataclass
+class EggPrediction:
+	bbox: list
 	confidence: float
 
 
@@ -104,6 +113,32 @@ class VideoSource:
 			self.thread = None
 
 		self.first_frame_ready.clear()
+
+class EggDetector:
+    def __init__(self, threshold: float = 0.5):
+        self.threshold = threshold
+
+        # Download model from Hugging Face
+        model_path = hf_hub_download(
+            repo_id=EGG_MODEL_REPO,
+            filename=EGG_MODEL_FILENAME,
+        )
+
+        # Load RF-DETR
+        self.model = RFDETRNano(
+            pretrain_weights=model_path
+        )
+
+        # Optimize for inference
+        self.model.optimize_for_inference()
+
+    def predict(self, image):
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        return self.model.predict(
+            image_rgb,
+            threshold=self.threshold
+        )
 
 
 class BirdDetector:
