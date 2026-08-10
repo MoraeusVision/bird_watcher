@@ -2,6 +2,7 @@ import logging
 import threading
 from dataclasses import dataclass
 import atexit
+from datetime import datetime, timedelta
 
 import cv2
 import numpy as np
@@ -38,7 +39,7 @@ class BirdPrediction:
 class EggPrediction:
 	bbox: list
 	confidence: float
-
+		
 
 class VideoSource:
 	"""Threaded camera reader with platform-specific camera backend."""
@@ -164,11 +165,77 @@ class EggDetector:
         return self._parse_eggs(detections)
 
 
+class EggMonitor:
+	def __init__(
+			self,
+			detector: EggDetector,
+			batch_size: int = 500,
+			required_detections: int = 25,
+			cooldown_days: int = 90,
+			check_frequency_hours: int = 1):
+	
+		self.detector = detector
+		self.batch_size = batch_size
+		self.required_detections = required_detections
+		self.cooldown_days = cooldown_days
+		self.check_frequency_hours = check_frequency_hours
+		self.frames = []
+		self.egg_detected = False
+		self.next_check = datetime.now()
+
+	def update(self, frame):
+		if datetime.now() < self.next_check:
+			return
+		
+		self.fill_batch(frame)
+
+		if not self.batch_is_full():
+			return
+
+		self.check_batch()
+
+		if not self.egg_detected:
+			self.frames.clear()
+			self.next_check = datetime.now() + timedelta(hours=self.check_frequency_hours)
+			logger.info(f"Checking again at {self.next_check}")
+			return
+
+		self.alert_subscribers()
+		self.frames.clear()
+		self.next_check = datetime.now() + timedelta(days=self.cooldown_days)
+		logger.info(f"Cooldown, looking for eggs again at {self.next_check}")
+
+	def alert_subscribers(self):
+		logger.info("Eggs are detected!") # Placeholder
+		
+	def check_batch(self):
+		detections = 0
+
+		for frame in self.frames:
+			eggs = self.detector.get_eggs(frame)
+
+			if eggs:
+				detections += 1
+
+		self.egg_detected = detections >= self.required_detections
+		
+	def fill_batch(self, frame):
+		logger.info(f"frames in batch: {len(self.frames)}")
+		self.frames.append(frame)
+
+	def batch_is_full(self):
+		logger.info("Batch is full")
+		return len(self.frames) >= self.batch_size
+
+	def egg_status(self):
+		return self.egg_detected
+
+
 class BirdDetector:
 	"""RF-DETR bird detector."""
 
 	def __init__(self):
-		self.model = RFDETRNano(pretrain_weights=MODEL_PATH)
+		self.model = RFDETRNano(pretrain_weights=BIRD_MODEL_PATH)
 		self.model.optimize_for_inference()
 
 	def predict(self, frame: np.ndarray) -> sv.Detections:
@@ -218,9 +285,10 @@ class BirdPipeline:
 class BirdWatcherWebApp:
 	"""Flask app that streams camera frames and analyzes on button click."""
 
-	def __init__(self, camera: VideoSource, pipeline: BirdPipeline):
+	def __init__(self, camera: VideoSource, pipeline: BirdPipeline, egg_monitor: EggMonitor):
 		self.camera = camera
 		self.pipeline = pipeline
+		self.egg_monitor = egg_monitor
 		self.frame_lock = threading.Lock()
 		self.latest_frame: np.ndarray | None = None
 
@@ -272,6 +340,8 @@ class BirdWatcherWebApp:
 		while True:
 			frame = self.camera.get_latest_frame()
 
+			self.egg_monitor.update(frame)
+
 			with self.frame_lock:
 				self.latest_frame = frame.copy()
 
@@ -289,16 +359,18 @@ class BirdWatcherWebApp:
 def create_components() -> tuple[VideoSource, BirdPipeline]:
 	camera = VideoSource(0)
 	detector = BirdDetector()
+	egg_detector = EggDetector()
 	classifier = BirdClassifier()
+	egg_monitor = EggMonitor(detector=egg_detector)
 	pipeline = BirdPipeline(detector=detector, classifier=classifier)
-	return camera, pipeline
+	return camera, pipeline, egg_monitor
 
 
 def create_app() -> Flask:
-	camera, bird_pipeline = create_components()
+	camera, bird_pipeline, egg_monitor = create_components()
 	camera.start()
 
-	web_app = BirdWatcherWebApp(camera=camera, pipeline=bird_pipeline)
+	web_app = BirdWatcherWebApp(camera=camera, pipeline=bird_pipeline, egg_monitor=egg_monitor)
 	web_app.flask_app.config["VIDEO_SOURCE"] = camera
 
 	atexit.register(camera.stop)
