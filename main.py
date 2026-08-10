@@ -114,10 +114,9 @@ class VideoSource:
 
 		self.first_frame_ready.clear()
 
+
 class EggDetector:
     def __init__(self, threshold: float = 0.5):
-        self.threshold = threshold
-
         # Download model from Hugging Face
         model_path = hf_hub_download(
             repo_id=EGG_MODEL_REPO,
@@ -132,13 +131,37 @@ class EggDetector:
         # Optimize for inference
         self.model.optimize_for_inference()
 
-    def predict(self, image):
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        self.threshold = threshold
+
+    def predict(self, frame):
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         return self.model.predict(
-            image_rgb,
+            frame_rgb,
             threshold=self.threshold
         )
+
+    def _parse_eggs(self, detections):
+        eggs = []
+
+        for class_id, confidence, bbox in zip(
+            detections.class_id,
+            detections.confidence,
+            detections.xyxy,
+        ):
+            if class_id == 0:
+                eggs.append(
+                    EggPrediction(
+                        bbox=bbox.tolist(),
+                        confidence=float(confidence),
+                    )
+                )
+
+        return eggs
+
+    def get_eggs(self, frame):
+        detections = self.predict(frame)
+        return self._parse_eggs(detections)
 
 
 class BirdDetector:
