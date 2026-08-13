@@ -1,7 +1,7 @@
 from picamera2 import Picamera2
 import cv2
 
-from utils import LedManager, get_platform
+from ..utils import LedManager, get_platform
 
 
 picam2 = Picamera2()

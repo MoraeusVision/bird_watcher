@@ -2,7 +2,10 @@ import logging
 import threading
 from dataclasses import dataclass
 import atexit
+import torch
 from datetime import datetime, timedelta
+import birder
+from birder.inference.classification import infer_image
 
 import cv2
 import numpy as np
@@ -252,17 +255,33 @@ class BirdDetector:
 class BirdClassifier:
 	"""Bird species classifier."""
 
-	def __init__(self):
-		self.model = pipeline(
-			"image-classification",
-			model="dennisjooo/Birds-Classifier-EfficientNetB2",
-		)
+	def __init__(self, model_name: str = "convnext_v2_tiny_eu-common"):
+		self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+		self.net, model_info, self.transform = birder.load_pretrained_model_and_transform(
+				model_name,
+				inference=True,
+				device=self.device,
+				progress_bar=False,
+			)
+
+		self.class_names = [name for name, _ in sorted(model_info.class_to_idx.items(), key=lambda item: item[1])]
 
 	def predict(self, image: np.ndarray) -> BirdPrediction:
-		image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-		result = self.model(Image.fromarray(image_rgb))
-		best = result[0]
-		return BirdPrediction(species=best["label"], confidence=float(best["score"]))
+		rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+		image = Image.fromarray(rgb)
+
+		logits, _ = infer_image(
+			self.net,
+			image,
+			self.transform,
+			device=self.device)
+		
+		pred_idx = int(np.argmax(logits[0]))
+		confidence = float(logits[0, pred_idx])
+		label = self.class_names[pred_idx]
+
+		return BirdPrediction(species=label, confidence=confidence)
 
 
 class BirdPipeline:
@@ -315,6 +334,7 @@ class BirdWatcherWebApp:
 				frame = self.latest_frame.copy()
 
 			prediction = self.pipeline.process(frame)
+			print(prediction)
 			if prediction is None:
 				return jsonify(
 					{
