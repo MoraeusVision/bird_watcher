@@ -105,16 +105,16 @@ class VideoSource:
 	def stop(self) -> None:
 		self.running = False
 
+		if self.thread is not None:
+			self.thread.join(timeout=1.0)
+			self.thread = None
+
 		if self.platform != "Linux" and self.cap is not None:
 			self.cap.release()
 			self.cap = None
 
 		if self.platform == "Linux" and self.camera is not None:
 			self.camera.stop()
-
-		if self.thread is not None:
-			self.thread.join(timeout=1.0)
-			self.thread = None
 
 		self.first_frame_ready.clear()
 
@@ -172,7 +172,7 @@ class EggMonitor:
 	def __init__(
 			self,
 			detector: EggDetector,
-			batch_size: int = 500,
+			batch_size: int = 100,
 			required_detections: int = 25,
 			cooldown_days: int = 90,
 			check_frequency_hours: int = 1):
@@ -183,11 +183,15 @@ class EggMonitor:
 		self.cooldown_days = cooldown_days
 		self.check_frequency_hours = check_frequency_hours
 		self.frames = []
-		self.egg_detected = False
 		self.next_check = datetime.now()
+		self.checking = False
+		self.egg_detected = False
 
 	def update(self, frame):
 		if datetime.now() < self.next_check:
+			return
+
+		if self.checking:
 			return
 		
 		self.fill_batch(frame)
@@ -195,39 +199,60 @@ class EggMonitor:
 		if not self.batch_is_full():
 			return
 
-		self.check_batch()
+		frames = self.frames.copy()
 
-		if not self.egg_detected:
-			self.frames.clear()
+		self.checking = True
+
+		threading.Thread(
+			target=self._on_full_batch,
+			args=(frames,),
+			daemon=True,
+		).start()
+
+	def _on_full_batch(self, frames):
+			eggs_detected = self.check_if_batch_has_eggs(frames)
+			self.handle_results(eggs_detected)
+			self.checking = False
+
+	def check_if_batch_has_eggs(self, frames):
+			logger.info("Looking for eggs in batch...")
+			detections = 0
+			
+			for frame in frames:
+				eggs = self.detector.get_eggs(frame)
+	
+				if eggs:
+					detections += 1
+
+			eggs_detected = detections >= self.required_detections
+
+			if self.egg_detected:
+				logger.info("Eggs detected in the batch!")
+			else:
+				logger.info("No eggs were detected in the batch.")
+	
+			return eggs_detected
+
+	def handle_results(self, egg_detected):
+		self.egg_detected = egg_detected
+
+		if egg_detected:
+			self.alert_subscribers()
+			self.next_check = datetime.now() + timedelta(days=self.cooldown_days)
+		else:
 			self.next_check = datetime.now() + timedelta(hours=self.check_frequency_hours)
-			logger.info(f"Checking again at {self.next_check}")
-			return
 
-		self.alert_subscribers()
 		self.frames.clear()
-		self.next_check = datetime.now() + timedelta(days=self.cooldown_days)
+
 		logger.info(f"Cooldown, looking for eggs again at {self.next_check}")
 
 	def alert_subscribers(self):
 		logger.info("Eggs are detected!") # Placeholder
-		
-	def check_batch(self):
-		detections = 0
 
-		for frame in self.frames:
-			eggs = self.detector.get_eggs(frame)
-
-			if eggs:
-				detections += 1
-
-		self.egg_detected = detections >= self.required_detections
-		
 	def fill_batch(self, frame):
-		logger.info(f"frames in batch: {len(self.frames)}")
 		self.frames.append(frame)
 
 	def batch_is_full(self):
-		logger.info("Batch is full")
 		return len(self.frames) >= self.batch_size
 
 	def egg_status(self):
@@ -374,7 +399,6 @@ class BirdWatcherWebApp:
 				b"--frame\r\n"
 				b"Content-Type: image/jpeg\r\n\r\n" + payload + b"\r\n"
 			)
-
 
 def create_components() -> tuple[VideoSource, BirdPipeline]:
 	camera = VideoSource(0)
