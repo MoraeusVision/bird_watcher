@@ -82,6 +82,22 @@
       font-size: 1rem;
       font-weight: 600;
     }
+
+    #summary-panel {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #f0f5f0;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      display: none;
+    }
+
+    #summary-panel p {
+      margin: 0;
+      color: #3a4a3c;
+    }
   </style>
 </head>
 <body>
@@ -93,11 +109,17 @@
       <button id="analyze-btn" type="button">Check bird species</button>
       <span id="result"></span>
     </div>
+
+    <div id="summary-panel">
+      <p id="summary-text"></p>
+    </div>
   </main>
 
   <script>
     const button = document.getElementById('analyze-btn');
     const result = document.getElementById('result');
+    const summaryPanel = document.getElementById('summary-panel');
+    const summaryText = document.getElementById('summary-text');
 
     button.addEventListener('click', async () => {
       button.disabled = true;
@@ -109,10 +131,18 @@
 
         if (!response.ok) {
           result.textContent = data.error || 'Analys misslyckades';
+          summaryPanel.style.display = 'none';
           return;
         }
 
         result.textContent = data.result_text;
+
+        if (data.species_summary) {
+          summaryText.textContent = data.species_summary;
+          summaryPanel.style.display = 'block';
+        } else {
+          summaryPanel.style.display = 'none';
+        }
       } catch (_error) {
         result.textContent = 'Kunde inte nå servern';
       } finally {

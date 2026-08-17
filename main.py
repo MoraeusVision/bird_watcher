@@ -3,7 +3,9 @@ import threading
 from dataclasses import dataclass
 import atexit
 import torch
+import json
 from datetime import datetime, timedelta
+from pathlib import Path
 import birder
 from birder.inference.classification import infer_image
 
@@ -326,13 +328,27 @@ class BirdPipeline:
 		return self.classifier.predict(bird_image)
 
 
+class BirdSummarizer:
+	def __init__(self, summary_path: str | Path = "tools/species_summaries.json"):
+		with open(summary_path, "r", encoding="utf-8") as f:
+			self.birds = json.load(f)
+
+	def get_summary(self, species: str) -> str | None:
+		return self.birds.get(species)
+	
+
 class BirdWatcherWebApp:
 	"""Flask app that streams camera frames and analyzes on button click."""
 
-	def __init__(self, camera: VideoSource, pipeline: BirdPipeline, egg_monitor: EggMonitor):
+	def __init__(self,
+			  camera: VideoSource,
+			  pipeline: BirdPipeline,
+			  egg_monitor: EggMonitor,
+			  summarizer: BirdSummarizer):
 		self.camera = camera
 		self.pipeline = pipeline
 		self.egg_monitor = egg_monitor
+		self.summarizer = summarizer
 		self.frame_lock = threading.Lock()
 		self.latest_frame: np.ndarray | None = None
 
@@ -359,7 +375,7 @@ class BirdWatcherWebApp:
 				frame = self.latest_frame.copy()
 
 			prediction = self.pipeline.process(frame)
-			print(prediction)
+			
 			if prediction is None:
 				return jsonify(
 					{
@@ -368,6 +384,11 @@ class BirdWatcherWebApp:
 						"result_text": "No bird detected",
 					}
 				)
+
+			species_summary = self.summarizer.get_summary(prediction.species)
+
+			if species_summary is None:
+				species_summary = "No summary available."
 
 			confidence_percent = int(round(prediction.confidence * 100))
 			result_text = f"{prediction.species} ({confidence_percent}%)"
@@ -378,6 +399,7 @@ class BirdWatcherWebApp:
 					"species": prediction.species,
 					"confidence_percent": confidence_percent,
 					"result_text": result_text,
+					"species_summary": species_summary,
 				}
 			)
 
@@ -405,16 +427,23 @@ def create_components() -> tuple[VideoSource, BirdPipeline]:
 	detector = BirdDetector()
 	egg_detector = EggDetector()
 	classifier = BirdClassifier()
+	summarizer = BirdSummarizer()
 	egg_monitor = EggMonitor(detector=egg_detector)
 	pipeline = BirdPipeline(detector=detector, classifier=classifier)
-	return camera, pipeline, egg_monitor
+	return camera, pipeline, egg_monitor, summarizer
 
 
 def create_app() -> Flask:
-	camera, bird_pipeline, egg_monitor = create_components()
+	camera, bird_pipeline, egg_monitor, summarizer = create_components()
 	camera.start()
 
-	web_app = BirdWatcherWebApp(camera=camera, pipeline=bird_pipeline, egg_monitor=egg_monitor)
+	web_app = BirdWatcherWebApp(
+		camera=camera,
+		pipeline=bird_pipeline,
+		egg_monitor=egg_monitor,
+		summarizer = summarizer,
+		)
+	
 	web_app.flask_app.config["VIDEO_SOURCE"] = camera
 
 	atexit.register(camera.stop)
