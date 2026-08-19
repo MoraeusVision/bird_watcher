@@ -49,14 +49,17 @@ class EggPrediction:
 class VideoSource:
 	"""Threaded camera reader with platform-specific camera backend."""
 
-	def __init__(self, source: int | str = 0):
+	def __init__(self, source: int | str = 0, target_fps: int = 10):
 		self.platform = get_platform()
+		self.target_fps = target_fps
 
 		if self.platform == "Linux":
 			from picamera2 import Picamera2
 
 			self.camera = Picamera2()
-			self.camera.configure(self.camera.create_preview_configuration())
+			self.camera.configure(self.camera.create_preview_configuration(
+				controls={"FrameRate": target_fps}
+			))
 			self.camera.start()
 			self.cap = None
 		else:
