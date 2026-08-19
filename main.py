@@ -57,9 +57,7 @@ class VideoSource:
 			from picamera2 import Picamera2
 
 			self.camera = Picamera2()
-			self.camera.configure(self.camera.create_preview_configuration(
-				controls={"FrameRate": target_fps}
-			))
+			self.camera.video_configuration.controls.FrameRate = 10
 			self.camera.start()
 			self.cap = None
 		else:
