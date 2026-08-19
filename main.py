@@ -458,7 +458,7 @@ if __name__ == "__main__":
 	video_source = app.config.get("VIDEO_SOURCE")
 
 	try:
-		app.run(host="0.0.0.0", port=8081, debug=False)
+		app.run(host="0.0.0.0", port=8080, debug=False)
 	finally:
 		if video_source is not None:
 			video_source.stop()
