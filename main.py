@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import atexit
 import torch
 import json
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 import birder
@@ -16,7 +15,6 @@ import supervision as sv
 from PIL import Image
 from flask import Flask, Response, jsonify, render_template
 from rfdetr import RFDETRNano
-from transformers import pipeline
 from huggingface_hub import hf_hub_download
 
 from utils import crop_image, get_platform
@@ -50,9 +48,8 @@ class EggPrediction:
 class VideoSource:
 	"""Threaded camera reader with platform-specific camera backend."""
 
-	def __init__(self, source: int | str = 0, target_fps: int = 10):
+	def __init__(self, source: int | str = 0):
 		self.platform = get_platform()
-		self.target_fps = target_fps
 
 		if self.platform == "Linux":
 			from picamera2 import Picamera2
@@ -82,11 +79,8 @@ class VideoSource:
 		self.first_frame_ready.wait()
 
 	def _capture_loop(self) -> None:
-		frame_interval = 1 / self.target_fps
 
 		while self.running:
-			start_time = time.monotonic()
-
 			if self.platform == "Linux":
 				frame = self.camera.capture_array()
 				frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
@@ -102,12 +96,6 @@ class VideoSource:
 				self.frame = frame
 
 			self.first_frame_ready.set()
-
-			elapsed = time.monotonic() - start_time
-			sleep_time = frame_interval - elapsed
-
-			if sleep_time > 0:
-				time.sleep(sleep_time)
 
 	def get_latest_frame(self) -> np.ndarray:
 		with self.lock:
