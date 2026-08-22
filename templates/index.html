@@ -1,118 +1,256 @@
 <!doctype html>
-<html lang="sv">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bird Watcher</title>
   <style>
     :root {
-      --bg: #f4f1ea;
-      --panel: #fffdf8;
-      --text: #1d2a1f;
-      --accent: #2f6f4f;
-      --accent-strong: #1f4f37;
-      --border: #d9d2c3;
+      --ink: #17231d;
+      --muted: #647268;
+      --paper: #f4f6f0;
+      --panel: #ffffff;
+      --line: #dfe6dc;
+      --moss: #286447;
+      --moss-dark: #1c4834;
+      --sun: #e6ae45;
     }
+
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      font-family: Georgia, "Times New Roman", serif;
-      background: radial-gradient(circle at top right, #e7efe6 0%, var(--bg) 55%);
-      color: var(--text);
+      font-family: "Avenir Next", Avenir, "Trebuchet MS", sans-serif;
+      position: relative;
+      background: var(--paper);
+      color: var(--ink);
       min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 1rem;
-      box-sizing: border-box;
+      overflow-x: hidden;
     }
 
-    .card {
-      width: min(960px, 100%);
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 1rem;
-      box-shadow: 0 10px 30px rgba(35, 46, 35, 0.12);
+    body::before {
+      position: fixed;
+      z-index: -1;
+      inset: -18px;
+      content: "";
+      background: linear-gradient(rgba(244, 246, 240, 0.42), rgba(244, 246, 240, 0.42)),
+        url("{{ url_for('background_image') }}") center / cover no-repeat;
+    }
+
+    .shell {
+      width: min(1260px, 100%);
+      margin: 0 auto;
+      padding: 20px clamp(18px, 4vw, 56px) 28px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.8rem;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--moss);
+      box-shadow: 0 5px 14px rgba(40, 100, 71, 0.24);
+      font-family: Georgia, serif;
+      font-size: 1.1rem;
+    }
+
+    .intro {
+      margin-bottom: 22px;
     }
 
     h1 {
-      margin: 0 0 0.75rem;
-      font-size: clamp(1.3rem, 2vw, 1.8rem);
-      letter-spacing: 0.02em;
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 3.8rem;
+      font-weight: 400;
+      letter-spacing: 0;
+      line-height: 1;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
+      gap: 18px;
+      align-items: stretch;
+      height: min(480px, max(360px, calc(100vh - 350px)));
+    }
+
+    .feed-panel,
+    .insight-panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 16px 42px rgba(31, 58, 40, 0.08);
+    }
+
+    .feed-panel { min-height: 0; padding: 10px; }
+
+    .feed-wrap {
+      position: relative;
+      overflow: hidden;
+      height: 100%;
+      min-height: 0;
+      background: #d8e2d8;
     }
 
     .stream {
       width: 100%;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: #d9e3d9;
+      height: 100%;
+      min-height: 0;
+      height: 100%;
+      object-fit: cover;
       display: block;
+      background: #d8e2d8;
     }
 
-    .controls {
-      margin-top: 1rem;
+    .insight-panel {
       display: flex;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-      align-items: center;
+      flex-direction: column;
+      padding: clamp(22px, 3vw, 32px);
     }
+
+    .panel-kicker {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .insight-panel h2 { margin: 12px 0 8px; font-size: 1.8rem; font-weight: 500; }
+
+    .panel-copy { margin: 0; color: var(--muted); font-size: 0.92rem; line-height: 1.55; }
+
+    .controls { margin-top: auto; padding-top: 34px; }
 
     button {
+      width: 100%;
       border: 0;
-      border-radius: 10px;
-      padding: 0.7rem 1rem;
-      font-size: 1rem;
-      font-weight: 600;
+      padding: 14px 18px;
       color: #fff;
-      background: var(--accent);
+      background: var(--moss);
+      font: inherit;
+      font-size: 0.92rem;
+      font-weight: 800;
       cursor: pointer;
-      transition: background 0.2s ease;
+      transition: background 0.2s ease, transform 0.2s ease;
     }
 
-    button:hover {
-      background: var(--accent-strong);
-    }
-
-    button:disabled {
-      opacity: 0.7;
-      cursor: wait;
-    }
+    button:hover { background: var(--moss-dark); transform: translateY(-2px); }
+    button:focus-visible { outline: 3px solid var(--sun); outline-offset: 3px; }
+    button:disabled { opacity: 0.65; cursor: wait; transform: none; }
 
     #result {
-      font-size: 1rem;
-      font-weight: 600;
+      display: block;
+      min-height: 1.5em;
+      margin-top: 16px;
+      color: var(--moss-dark);
+      font-family: Georgia, serif;
+      font-size: 1.32rem;
+      font-weight: 400;
     }
 
     #summary-panel {
-      margin-top: 1rem;
-      padding: 0.85rem 1rem;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: #f0f5f0;
-      font-size: 0.95rem;
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.88rem;
       line-height: 1.6;
       display: none;
+      max-height: 112px;
+      overflow-y: scroll;
+      scrollbar-gutter: stable;
+      scrollbar-color: var(--moss) var(--paper);
     }
 
-    #summary-panel p {
-      margin: 0;
-      color: #3a4a3c;
+    #summary-panel p { margin: 0; }
+
+    #summary-panel::-webkit-scrollbar { width: 10px; }
+    #summary-panel::-webkit-scrollbar-track { background: var(--paper); }
+    #summary-panel::-webkit-scrollbar-thumb {
+      border: 3px solid var(--paper);
+      background: var(--moss);
+    }
+
+    .summary-scroll-button {
+      display: block;
+      width: 34px;
+      min-height: 34px;
+      margin: 8px 0 0 auto;
+      padding: 0;
+      color: var(--moss-dark);
+      background: var(--paper);
+      border: 1px solid var(--line);
+      font-size: 1.15rem;
+      line-height: 1;
+    }
+
+    .summary-scroll-button:hover { color: #fff; background: var(--moss); }
+    .summary-scroll-button[hidden] { display: none; }
+
+    @media (max-width: 760px) {
+      .shell { padding-top: 20px; }
+      .topbar { margin-bottom: 28px; }
+      .workspace { grid-template-columns: 1fr; }
+      .workspace { height: auto; }
+      .feed-wrap, .stream { height: 240px; }
+      .insight-panel { min-height: 300px; }
+      h1 { font-size: 2.8rem; }
     }
   </style>
 </head>
 <body>
-  <main class="card">
-    <h1>Bird Watcher Live</h1>
-    <img class="stream" src="{{ url_for('video_feed') }}" alt="Live videoström">
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">B</span> Bird Watcher</div>
+    </header>
 
-    <div class="controls">
-      <button id="analyze-btn" type="button">Check bird species</button>
-      <span id="result"></span>
-    </div>
+    <section class="intro" aria-labelledby="page-title">
+      <h1 id="page-title">See who stops by.</h1>
+    </section>
 
-    <div id="summary-panel">
-      <p id="summary-text"></p>
-    </div>
+    <section class="workspace" aria-label="Bird observation">
+      <div class="feed-panel">
+        <div class="feed-wrap">
+          <img class="stream" src="{{ url_for('video_feed') }}" alt="Live video stream from the bird camera">
+        </div>
+      </div>
+
+      <aside class="insight-panel">
+        <span class="panel-kicker">Species analysis</span>
+        <h2>Who is in frame?</h2>
+        <p class="panel-copy">Identify the bird in the current frame.</p>
+        <div class="controls">
+          <button id="analyze-btn" type="button">Birdalyze</button>
+          <span id="result" role="status" aria-live="polite"></span>
+        </div>
+        <div id="summary-panel">
+          <p id="summary-text"></p>
+        </div>
+        <button id="summary-scroll-button" class="summary-scroll-button" type="button"
+          aria-label="Scroll for more information" hidden>↓</button>
+      </aside>
+    </section>
   </main>
 
   <script>
@@ -120,17 +258,35 @@
     const result = document.getElementById('result');
     const summaryPanel = document.getElementById('summary-panel');
     const summaryText = document.getElementById('summary-text');
+    const summaryScrollButton = document.getElementById('summary-scroll-button');
+
+    function updateSummaryScrollButton() {
+      const canScroll = summaryPanel.scrollHeight > summaryPanel.clientHeight + 1;
+      const atBottom = summaryPanel.scrollTop + summaryPanel.clientHeight >= summaryPanel.scrollHeight - 1;
+      summaryScrollButton.hidden = !canScroll;
+      summaryScrollButton.textContent = atBottom ? '↑' : '↓';
+      summaryScrollButton.setAttribute(
+        'aria-label',
+        atBottom ? 'Scroll to the beginning of the summary' : 'Scroll for more information',
+      );
+    }
+
+    summaryPanel.addEventListener('scroll', updateSummaryScrollButton);
+    summaryScrollButton.addEventListener('click', () => {
+      const atBottom = summaryPanel.scrollTop + summaryPanel.clientHeight >= summaryPanel.scrollHeight - 1;
+      summaryPanel.scrollTo({ top: atBottom ? 0 : summaryPanel.scrollHeight, behavior: 'smooth' });
+    });
 
     button.addEventListener('click', async () => {
       button.disabled = true;
-      result.textContent = 'Analyserar...';
+      result.textContent = 'Analyzing...';
 
       try {
         const response = await fetch('/analyze', { method: 'POST' });
         const data = await response.json();
 
         if (!response.ok) {
-          result.textContent = data.error || 'Analys misslyckades';
+          result.textContent = data.error || 'Analysis failed';
           summaryPanel.style.display = 'none';
           return;
         }
@@ -140,11 +296,13 @@
         if (data.species_summary) {
           summaryText.textContent = data.species_summary;
           summaryPanel.style.display = 'block';
+          requestAnimationFrame(updateSummaryScrollButton);
         } else {
           summaryPanel.style.display = 'none';
+          summaryScrollButton.hidden = true;
         }
       } catch (_error) {
-        result.textContent = 'Kunde inte nå servern';
+        result.textContent = 'Could not reach the server';
       } finally {
         button.disabled = false;
       }

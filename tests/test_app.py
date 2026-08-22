@@ -78,7 +78,7 @@ def test_index_page_contains_stream_and_button(app_module) -> None:
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "video_feed" in html
-    assert "Analysera aktuell frame" in html
+    assert "Analyze current frame" in html
 
 
 def test_video_feed_returns_mjpeg_response(app_module, monkeypatch: pytest.MonkeyPatch) -> None:

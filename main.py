@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 import supervision as sv
 from PIL import Image
-from flask import Flask, Response, jsonify, render_template
+from flask import Flask, Response, jsonify, render_template, send_file
 from rfdetr import RFDETRNano
 from huggingface_hub import hf_hub_download
 
@@ -358,6 +358,10 @@ class BirdWatcherWebApp:
 		@self.flask_app.get("/")
 		def index():
 			return render_template("index.html")
+
+		@self.flask_app.get("/background.png")
+		def background_image():
+			return send_file(Path(__file__).parent / "templates" / "background.png")
 
 		@self.flask_app.get("/video_feed")
 		def video_feed():
